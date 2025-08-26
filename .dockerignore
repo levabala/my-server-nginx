@@ -1,0 +1,7 @@
+.git
+.github
+*.md
+.env*
+docker-compose*
+certbot/
+init-letsencrypt.sh
