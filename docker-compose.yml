@@ -8,6 +8,8 @@ services:
             - ./certbot/conf:/etc/letsencrypt
             - ./certbot/www:/var/www/certbot
             - ./certbot/logs:/var/log/letsencrypt
+            - ./dubna-hirudo-dist:/usr/share/nginx/html
+            - ./define-click-dist:/usr/share/nginx/html/define-click
         depends_on:
             - certbot
         command: "nginx -g 'daemon off;'"
