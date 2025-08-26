@@ -21,10 +21,10 @@ jobs:
             - name: Transfer image to VM
               uses: appleboy/scp-action@v1.0.0
               with:
-                  host: ${{ secrets.YA_CLOUD_PROD_HOST }}
-                  username: ${{ secrets.YA_CLOUD_PROD_USERNAME }}
-                  key: ${{ secrets.YA_CLOUD_PROD_KEY }}
-                  port: ${{ secrets.YA_CLOUD_PROD_PORT }}
+                  host: ${{ secrets.HOST }}
+                  username: ${{ secrets.USERNAME }}
+                  key: ${{ secrets.SSH_KEY }}
+                  port: ${{ secrets.PORT }}
                   source: 'my-server-nginx-${{ github.sha }}.tar.gz'
                   target: '/tmp/'
             # docker build and transfer - end
@@ -36,10 +36,10 @@ jobs:
             - name: executing remote ssh commands using password
               uses: appleboy/ssh-action@v1.2.2
               with:
-                  host: ${{ secrets.YA_CLOUD_PROD_HOST }}
-                  username: ${{ secrets.YA_CLOUD_PROD_USERNAME }}
-                  key: ${{ secrets.YA_CLOUD_PROD_KEY }}
-                  port: ${{ secrets.YA_CLOUD_PROD_PORT }}
+                  host: ${{ secrets.HOST }}
+                  username: ${{ secrets.USERNAME }}
+                  key: ${{ secrets.SSH_KEY }}
+                  port: ${{ secrets.PORT }}
                   script: |
                       # Rollback function
                       rollback_deployment() {
