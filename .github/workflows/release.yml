@@ -41,36 +41,8 @@ jobs:
                   key: ${{ secrets.SSH_KEY }}
                   port: ${{ secrets.PORT }}
                   script: |
-                      # Rollback function
-                      rollback_deployment() {
-                        echo "🔄 INITIATING ROLLBACK PROCEDURE"
-                        
-                        if [ -f ".env.backup" ] && [ -f "docker-compose.yml.backup" ]; then
-                          echo "=== Restoring previous configuration ==="
-                          mv .env.backup .env
-                          mv docker-compose.yml.backup docker-compose.yml
-                          
-                          echo "=== Starting previous version ==="
-                          docker-compose up -d
-                          
-                          echo "=== Waiting for services to stabilize ==="
-                          sleep 10
-                          
-                          echo "✅ ROLLBACK COMPLETED"
-                          docker-compose ps
-                          exit 0
-                        else
-                          echo "❌ NO BACKUP FOUND - Cannot rollback automatically"
-                          echo "Manual intervention required!"
-                          exit 1
-                        fi
-                      }
-
-
-
                       # Set error handling
                       set -e
-                      trap 'echo "❌ Deployment failed at line $LINENO"; rollback_deployment' ERR
 
                       if [ -x "$(command -v docker)" ]; then
                         echo "Docker is already installed"
@@ -93,28 +65,22 @@ jobs:
                         echo "Docker Compose installed successfully"
                       fi
 
-                       echo "=== Starting deployment process ==="
+                      echo "=== Starting deployment process ==="
 
-                       echo "=== Loading Docker image from transferred file ==="
-                       docker load < /tmp/my-server-nginx-${{ github.sha }}.tar.gz
-                       echo "✓ Docker image loaded successfully"
+                      echo "=== Ensuring ~/my-server-nginx directory exists ==="
+                      mkdir -p ~/my-server-nginx
+                      cd ~/my-server-nginx
 
-                       echo "=== Cleaning up transferred file ==="
-                       rm -f /tmp/my-server-nginx-${{ github.sha }}.tar.gz
-                       echo "✓ Transferred file cleaned up"
+                      echo "=== Loading Docker image from transferred file ==="
+                      docker load < /tmp/my-server-nginx-${{ github.sha }}.tar.gz
+                      echo "✓ Docker image loaded successfully"
 
-                       echo "=== Backing up current configuration ==="
-                       if [ -f ".env" ]; then
-                         cp .env .env.backup
-                         echo "✓ .env backed up"
-                       fi
-                       if [ -f "docker-compose.yml" ]; then
-                         cp docker-compose.yml docker-compose.yml.backup
-                         echo "✓ docker-compose.yml backed up"
-                       fi
+                      echo "=== Cleaning up transferred file ==="
+                      rm -f /tmp/my-server-nginx-${{ github.sha }}.tar.gz
+                      echo "✓ Transferred file cleaned up"
 
                       echo "=== Downloading configuration files for tag ${{ github.ref_name }} ==="
-                      curl -o docker-compose.yml.new https://raw.githubusercontent.com/levabala/my-server-nginx/${{ github.ref_name }}/docker-compose.yml
+                      curl -o docker-compose.yml https://raw.githubusercontent.com/levabala/my-server-nginx/${{ github.ref_name }}/docker-compose.yml
                       echo "✓ docker-compose.yml downloaded"
 
                       curl -o init-letsencrypt.sh https://raw.githubusercontent.com/levabala/my-server-nginx/${{ github.ref_name }}/init-letsencrypt.sh
@@ -122,28 +88,18 @@ jobs:
                       chmod +x init-letsencrypt.sh
                       echo "✓ Made init-letsencrypt.sh executable"
 
-                       echo "=== Creating new .env file ==="
-                       echo "DOCKER_IMAGE=my-server-nginx:${{ github.sha }}" > .env.new
-                       echo "✓ .env.new file created"
-
-                      echo "=== Applying new configuration ==="
-                      mv .env.new .env
-                      mv docker-compose.yml.new docker-compose.yml
+                      echo "=== Creating .env file ==="
+                      echo "DOCKER_IMAGE=my-server-nginx:${{ github.sha }}" > .env
+                      echo "✓ .env file created"
                       
                       echo "=== Starting services ==="
                       docker-compose up -d
                       echo "✓ Services started"
                       
-                      echo "=== Waiting for services to stabilize ==="
-                      sleep 30
-                      
                       echo "✅ DEPLOYMENT SUCCESSFUL"
                       
                       echo "=== Cleaning up old images ==="
                       docker image prune -f || true
-                      
-                      echo "=== Removing backup files ==="
-                      rm -f .env.backup docker-compose.yml.backup
 
                       echo "=== Final container status ==="
                       docker-compose ps
