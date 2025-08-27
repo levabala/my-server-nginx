@@ -23,3 +23,8 @@ services:
             - ./certbot/logs:/var/log/letsencrypt
         entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
         restart: unless-stopped
+
+networks:
+    default:
+        name: my-server-nginx_default
+        driver: bridge
