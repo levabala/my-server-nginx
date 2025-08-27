@@ -8,14 +8,18 @@ if ! [ -x "$(command -v docker-compose)" ]; then
   exit 1
 fi
 
-domains=(dubna-hirudo.ru define.click www.define.click)
+# Define domain groups - each group gets its own certificate
+domain_groups=(
+  "dubna-hirudo.ru"
+  "define.click www.define.click"
+)
 rsa_key_size=4096
 data_path="./certbot"
 email="admin@dubna-hirudo.ru" # Adding a valid email is strongly recommended
 staging=0 # Set to 1 if you're testing your setup to avoid hitting request limits
 
 if [ -d "$data_path" ]; then
-  echo "Existing data found for $domains. Replacing existing certificate..."
+  echo "Existing data found. Replacing existing certificates..."
 fi
 
 if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/ssl-dhparams.pem" ]; then
@@ -32,17 +36,22 @@ if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/
   echo
 fi
 
-echo "### Creating dummy certificate for $domains ..."
-path="/etc/letsencrypt/live/$domains"
-mkdir -p "$data_path/conf/live/$domains"
-if ! docker-compose run --rm --entrypoint "\
-  openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
-    -keyout '$path/privkey.pem' \
-    -out '$path/fullchain.pem' \
-    -subj '/CN=localhost'" certbot; then
-  echo "Error: Failed to create dummy certificate" >&2
-  exit 1
-fi
+echo "### Creating dummy certificates ..."
+for domain_group in "${domain_groups[@]}"; do
+  # Get first domain as primary domain for cert path
+  primary_domain=$(echo $domain_group | cut -d' ' -f1)
+  path="/etc/letsencrypt/live/$primary_domain"
+  mkdir -p "$data_path/conf/live/$primary_domain"
+  echo "Creating dummy certificate for $primary_domain..."
+  if ! docker-compose run --rm --entrypoint "\
+    openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
+      -keyout '$path/privkey.pem' \
+      -out '$path/fullchain.pem' \
+      -subj '/CN=localhost'" certbot; then
+    echo "Error: Failed to create dummy certificate for $primary_domain" >&2
+    exit 1
+  fi
+done
 echo
 
 echo "### Starting nginx ..."
@@ -52,23 +61,21 @@ if ! docker-compose up --force-recreate -d nginx; then
 fi
 echo
 
-echo "### Deleting dummy certificate for $domains ..."
-if ! docker-compose run --rm --entrypoint "\
-  rm -Rf /etc/letsencrypt/live/$domains && \
-  rm -Rf /etc/letsencrypt/archive/$domains && \
-  rm -Rf /etc/letsencrypt/renewal/$domains.conf" certbot; then
-  echo "Error: Failed to delete dummy certificate" >&2
-  exit 1
-fi
+echo "### Deleting dummy certificates ..."
+for domain_group in "${domain_groups[@]}"; do
+  primary_domain=$(echo $domain_group | cut -d' ' -f1)
+  echo "Deleting dummy certificate for $primary_domain..."
+  if ! docker-compose run --rm --entrypoint "\
+    rm -Rf /etc/letsencrypt/live/$primary_domain && \
+    rm -Rf /etc/letsencrypt/archive/$primary_domain && \
+    rm -Rf /etc/letsencrypt/renewal/$primary_domain.conf" certbot; then
+    echo "Error: Failed to delete dummy certificate for $primary_domain" >&2
+    exit 1
+  fi
+done
 echo
 
-echo "### Requesting Let's Encrypt certificate for $domains ..."
-# Join $domains to -d args
-domain_args=""
-for domain in "${domains[@]}"; do
-  domain_args="$domain_args -d $domain"
-done
-
+echo "### Requesting Let's Encrypt certificates ..."
 # Select appropriate email arg
 case "$email" in
   "") email_arg="--register-unsafely-without-email" ;;
@@ -78,17 +85,26 @@ esac
 # Enable staging mode if needed
 if [ $staging != "0" ]; then staging_arg="--staging"; fi
 
-if ! docker-compose run --rm --entrypoint "\
-  certbot certonly --webroot -w /var/www/certbot \
-    $staging_arg \
-    $email_arg \
-    $domain_args \
-    --rsa-key-size $rsa_key_size \
-    --agree-tos \
-    --force-renewal" certbot; then
-  echo "Error: Failed to obtain Let's Encrypt certificate" >&2
-  exit 1
-fi
+for domain_group in "${domain_groups[@]}"; do
+  # Build domain args for this group
+  domain_args=""
+  for domain in $domain_group; do
+    domain_args="$domain_args -d $domain"
+  done
+  
+  echo "Requesting certificate for: $domain_group"
+  if ! docker-compose run --rm --entrypoint "\
+    certbot certonly --webroot -w /var/www/certbot \
+      $staging_arg \
+      $email_arg \
+      $domain_args \
+      --rsa-key-size $rsa_key_size \
+      --agree-tos \
+      --force-renewal" certbot; then
+    echo "Error: Failed to obtain Let's Encrypt certificate for $domain_group" >&2
+    exit 1
+  fi
+done
 echo
 
 echo "### Reloading nginx ..."
