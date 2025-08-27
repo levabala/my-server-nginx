@@ -8,7 +8,7 @@ if ! [ -x "$(command -v docker-compose)" ]; then
   exit 1
 fi
 
-domains=(dubna-hirudo.ru)
+domains=(dubna-hirudo.ru define.click www.define.click)
 rsa_key_size=4096
 data_path="./certbot"
 email="admin@dubna-hirudo.ru" # Adding a valid email is strongly recommended
