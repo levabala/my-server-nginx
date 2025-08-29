@@ -9,10 +9,22 @@ if ! [ -x "$(command -v docker-compose)" ]; then
 fi
 
 # Define domain groups - each group gets its own certificate
-domain_groups=(
-  "dubna-hirudo.ru"
-  "define.click www.define.click"
-)
+domain_groups=()
+
+# Add domain groups based on environment variables
+if [ -z "$NO_DUBNA_HIRUDO" ]; then
+  domain_groups+=("dubna-hirudo.ru")
+fi
+
+if [ -z "$NO_DEFINE" ]; then
+  domain_groups+=("define.click www.define.click")
+fi
+
+# Check if any domain groups are enabled
+if [ ${#domain_groups[@]} -eq 0 ]; then
+  echo "No domain groups enabled. All domains disabled via environment variables."
+  exit 0
+fi
 rsa_key_size=4096
 data_path="./certbot"
 email="admin@dubna-hirudo.ru" # Adding a valid email is strongly recommended
@@ -47,7 +59,7 @@ for domain_group in "${domain_groups[@]}"; do
     openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
       -keyout '$path/privkey.pem' \
       -out '$path/fullchain.pem' \
-      -subj '/CN=localhost'" certbot; then
+      -subj '/CN=localhost'" certbot 2>&1 | grep -v "ddtrace\|dd\.service=certbot\|datadog"; then
     echo "Error: Failed to create dummy certificate for $primary_domain" >&2
     exit 1
   fi
@@ -55,7 +67,7 @@ done
 echo
 
 echo "### Starting nginx ..."
-if ! docker-compose up --force-recreate -d nginx; then
+if ! docker-compose up --force-recreate -d nginx 2>&1 | grep -v "ddtrace\|dd\.service=\|datadog"; then
   echo "Error: Failed to start nginx" >&2
   exit 1
 fi
@@ -88,7 +100,7 @@ for domain_group in "${domain_groups[@]}"; do
       $domain_args \
       --rsa-key-size $rsa_key_size \
       --agree-tos \
-      --force-renewal" certbot; then
+      --force-renewal" certbot 2>&1 | grep -v "ddtrace\|dd\.service=certbot\|datadog"; then
     
     echo "Successfully obtained real certificate for $domain_group"
   else
@@ -99,7 +111,7 @@ done
 echo
 
 echo "### Reloading nginx ..."
-if ! docker-compose exec nginx nginx -s reload; then
+if ! docker-compose exec nginx nginx -s reload 2>&1 | grep -v "ddtrace\|dd\.service=\|datadog"; then
   echo "Error: Failed to reload nginx" >&2
   exit 1
 fi
