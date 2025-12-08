@@ -109,6 +109,7 @@ for domain_group in "${domain_groups[@]}"; do
       $staging_arg \
       $email_arg \
       $domain_args \
+      --cert-name $primary_domain \
       --rsa-key-size $rsa_key_size \
       --agree-tos \
       --force-renewal" certbot 2>&1 | grep -v "ddtrace\|dd\.service=certbot\|datadog"; then
