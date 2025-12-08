@@ -30,8 +30,9 @@ data_path="./certbot"
 email="admin@dubna-hirudo.ru" # Adding a valid email is strongly recommended
 staging=0 # Set to 1 if you're testing your setup to avoid hitting request limits
 
-if [ -d "$data_path" ]; then
-  echo "Existing data found. Replacing existing certificates..."
+if [ -d "$data_path/conf/live" ]; then
+  echo "Existing certificate data found. Cleaning up..."
+  rm -rf "$data_path/conf/live"/* "$data_path/conf/archive"/* "$data_path/conf/renewal"/* 2>/dev/null || true
 fi
 
 if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/ssl-dhparams.pem" ]; then
@@ -71,12 +72,6 @@ if ! docker-compose up --force-recreate -d nginx 2>&1 | grep -v "ddtrace\|dd\.se
   echo "Error: Failed to start nginx" >&2
   exit 1
 fi
-echo
-
-echo "### Cleaning up all certificate data ..."
-# Wipe all certificate data to ensure clean state (preserves options-ssl-nginx.conf and ssl-dhparams.pem)
-docker-compose run --rm --entrypoint "\
-  sh -c 'rm -rf /etc/letsencrypt/live/* /etc/letsencrypt/archive/* /etc/letsencrypt/renewal/*'" certbot 2>&1 | grep -v "ddtrace\|dd\.service=certbot\|datadog" || true
 echo
 
 echo "### Requesting Let's Encrypt certificates ..."
