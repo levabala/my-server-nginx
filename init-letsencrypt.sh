@@ -81,6 +81,10 @@ if ! docker-compose up --force-recreate -d nginx 2>&1 | grep -v "ddtrace\|dd\.se
 fi
 echo
 
+echo "### Deleting dummy certificates ..."
+rm -rf "$data_path/conf/live"/* "$data_path/conf/archive"/* "$data_path/conf/renewal"/* 2>/dev/null || true
+echo
+
 echo "### Requesting Let's Encrypt certificates ..."
 # Select appropriate email arg
 case "$email" in
