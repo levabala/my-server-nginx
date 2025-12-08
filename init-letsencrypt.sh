@@ -8,6 +8,13 @@ if ! [ -x "$(command -v docker-compose)" ]; then
   exit 1
 fi
 
+# Check if containers are already running (could cause conflicts)
+if docker-compose ps --status running 2>/dev/null | grep -q "certbot\|nginx"; then
+  echo 'Error: nginx or certbot containers are already running.' >&2
+  echo 'Please run "docker-compose down" first to avoid conflicts.' >&2
+  exit 1
+fi
+
 # Define domain groups - each group gets its own certificate
 domain_groups=()
 
