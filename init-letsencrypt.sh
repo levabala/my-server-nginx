@@ -73,14 +73,18 @@ if ! docker-compose up --force-recreate -d nginx 2>&1 | grep -v "ddtrace\|dd\.se
 fi
 echo
 
-echo "### Deleting dummy certificates ..."
+echo "### Deleting dummy certificates and cleaning up old certificate data ..."
 for domain_group in "${domain_groups[@]}"; do
   primary_domain=$(echo $domain_group | cut -d' ' -f1)
-  echo "Deleting dummy certificate for $primary_domain..."
+  echo "Deleting certificates for $primary_domain (including any numbered variants)..."
+  # Remove exact match and any numbered variants (-0001, -0002, etc.)
   docker-compose run --rm --entrypoint "\
     rm -Rf /etc/letsencrypt/live/$primary_domain && \
+    rm -Rf /etc/letsencrypt/live/$primary_domain-* && \
     rm -Rf /etc/letsencrypt/archive/$primary_domain && \
-    rm -Rf /etc/letsencrypt/renewal/$primary_domain.conf" certbot 2>&1 | grep -v "ddtrace\|dd\.service=certbot\|datadog" || true
+    rm -Rf /etc/letsencrypt/archive/$primary_domain-* && \
+    rm -Rf /etc/letsencrypt/renewal/$primary_domain.conf && \
+    rm -Rf /etc/letsencrypt/renewal/$primary_domain-*.conf" certbot 2>&1 | grep -v "ddtrace\|dd\.service=certbot\|datadog" || true
 done
 echo
 
