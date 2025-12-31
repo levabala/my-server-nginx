@@ -27,6 +27,10 @@ if [ -z "$NO_DEFINE" ]; then
   domain_groups+=("define.click www.define.click")
 fi
 
+if [ -z "$NO_LETSWATCHSMTH" ]; then
+  domain_groups+=("letswatchsmth.website www.letswatchsmth.website")
+fi
+
 # Check if any domain groups are enabled
 if [ ${#domain_groups[@]} -eq 0 ]; then
   echo "No domain groups enabled. All domains disabled via environment variables."
