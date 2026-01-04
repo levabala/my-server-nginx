@@ -12,7 +12,7 @@ services:
             - ./define-click-dist:/usr/share/nginx/html/define-click
         depends_on:
             - certbot
-        command: "nginx -g 'daemon off;'"
+        # entrypoint in Dockerfile handles startup
         restart: unless-stopped
 
     certbot:
