@@ -1,19 +1,17 @@
 #!/bin/bash
 
 # Initialize Let's Encrypt certificates for nginx with docker-compose
-# Note: We don't use 'set -e' to allow graceful handling of certificate generation failures
+# This script uses standalone mode to obtain certificates without nginx running,
+# then starts nginx with the real certificates.
 
 if ! [ -x "$(command -v docker-compose)" ]; then
   echo 'Error: docker-compose is not installed.' >&2
   exit 1
 fi
 
-# Check if containers are already running (could cause conflicts)
-if docker-compose ps --status running 2>/dev/null | grep -q "certbot\|nginx"; then
-  echo 'Error: nginx or certbot containers are already running.' >&2
-  echo 'Please run "docker-compose down" first to avoid conflicts.' >&2
-  exit 1
-fi
+# Stop any running containers first
+echo "### Stopping any running containers..."
+docker-compose down 2>/dev/null || true
 
 # Define domain groups - each group gets its own certificate
 domain_groups=()
@@ -32,19 +30,19 @@ if [ ${#domain_groups[@]} -eq 0 ]; then
   echo "No domain groups enabled. All domains disabled via environment variables."
   exit 0
 fi
+
 rsa_key_size=4096
 data_path="./certbot"
 email="admin@dubna-hirudo.ru" # Adding a valid email is strongly recommended
 staging=0 # Set to 1 if you're testing your setup to avoid hitting request limits
 
-if [ -d "$data_path/conf/live" ]; then
-  echo "Existing certificate data found. Cleaning up..."
-  rm -rf "$data_path/conf/live"/* "$data_path/conf/archive"/* "$data_path/conf/renewal"/* 2>/dev/null || true
-fi
+# Clean up any existing certificate data
+echo "### Cleaning up existing certificate data..."
+rm -rf "$data_path/conf/live" "$data_path/conf/archive" "$data_path/conf/renewal" 2>/dev/null || true
+mkdir -p "$data_path/conf"
 
 if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/ssl-dhparams.pem" ]; then
   echo "### Downloading recommended TLS parameters ..."
-  mkdir -p "$data_path/conf"
   if ! curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "$data_path/conf/options-ssl-nginx.conf"; then
     echo "Error: Failed to download options-ssl-nginx.conf" >&2
     exit 1
@@ -56,36 +54,7 @@ if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/
   echo
 fi
 
-echo "### Creating dummy certificates ..."
-for domain_group in "${domain_groups[@]}"; do
-  # Get first domain as primary domain for cert path
-  primary_domain=$(echo $domain_group | cut -d' ' -f1)
-  path="/etc/letsencrypt/live/$primary_domain"
-  mkdir -p "$data_path/conf/live/$primary_domain"
-  echo "Creating dummy certificate for $primary_domain..."
-  if ! docker-compose run --rm --entrypoint "\
-    openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
-      -keyout '$path/privkey.pem' \
-      -out '$path/fullchain.pem' \
-      -subj '/CN=localhost'" certbot 2>&1 | grep -v "ddtrace\|dd\.service=certbot\|datadog"; then
-    echo "Error: Failed to create dummy certificate for $primary_domain" >&2
-    exit 1
-  fi
-done
-echo
-
-echo "### Starting nginx ..."
-if ! docker-compose up --force-recreate -d nginx 2>&1 | grep -v "ddtrace\|dd\.service=\|datadog"; then
-  echo "Error: Failed to start nginx" >&2
-  exit 1
-fi
-echo
-
-echo "### Deleting dummy certificates ..."
-rm -rf "$data_path/conf/live"/* "$data_path/conf/archive"/* "$data_path/conf/renewal"/* 2>/dev/null || true
-echo
-
-echo "### Requesting Let's Encrypt certificates ..."
+echo "### Requesting Let's Encrypt certificates using standalone mode..."
 # Select appropriate email arg
 case "$email" in
   "") email_arg="--register-unsafely-without-email" ;;
@@ -94,6 +63,8 @@ esac
 
 # Enable staging mode if needed
 if [ $staging != "0" ]; then staging_arg="--staging"; fi
+
+all_certs_obtained=true
 
 for domain_group in "${domain_groups[@]}"; do
   primary_domain=$(echo $domain_group | cut -d' ' -f1)
@@ -105,26 +76,48 @@ for domain_group in "${domain_groups[@]}"; do
   done
   
   echo "Requesting certificate for: $domain_group"
-  if docker-compose run --rm --entrypoint "\
-    certbot certonly --webroot -w /var/www/certbot \
+  
+  # Use standalone mode - certbot runs its own temporary web server on port 80
+  # This doesn't require nginx to be running
+  set +e
+  docker run --rm \
+    -p 80:80 \
+    -v "$(pwd)/$data_path/conf:/etc/letsencrypt" \
+    -v "$(pwd)/$data_path/www:/var/www/certbot" \
+    -v "$(pwd)/$data_path/logs:/var/log/letsencrypt" \
+    certbot/certbot certonly --standalone \
       $staging_arg \
       $email_arg \
       $domain_args \
       --cert-name $primary_domain \
       --rsa-key-size $rsa_key_size \
       --agree-tos \
-      --force-renewal" certbot 2>&1 | grep -v "ddtrace\|dd\.service=certbot\|datadog"; then
-    
+      --non-interactive 2>&1 | grep -v "ddtrace\|dd\.service=\|datadog"
+  certbot_exit=${PIPESTATUS[0]}
+  set -e
+  
+  if [ $certbot_exit -eq 0 ]; then
     echo "Successfully obtained real certificate for $domain_group"
   else
-    echo "Warning: Failed to obtain Let's Encrypt certificate for $domain_group" >&2
-    echo "Nginx will continue to serve with dummy certificate for $primary_domain"
+    echo "Error: Failed to obtain Let's Encrypt certificate for $domain_group (exit code: $certbot_exit)" >&2
+    all_certs_obtained=false
   fi
 done
 echo
 
-echo "### Reloading nginx ..."
-if ! docker-compose exec nginx nginx -s reload 2>&1 | grep -v "ddtrace\|dd\.service=\|datadog"; then
-  echo "Error: Failed to reload nginx" >&2
+if [ "$all_certs_obtained" = false ]; then
+  echo "Error: Not all certificates were obtained. Please check the logs above." >&2
   exit 1
 fi
+
+echo "### Starting services..."
+docker-compose up -d
+
+echo "### Verifying certificates..."
+sleep 2
+docker-compose logs nginx | tail -10
+
+echo
+echo "### Certificate initialization complete!"
+echo "Certificates are saved in $data_path/conf/live/"
+ls -la "$data_path/conf/live/" 2>/dev/null || echo "Warning: Could not list certificates"
